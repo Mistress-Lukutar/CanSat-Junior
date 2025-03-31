@@ -31,6 +31,7 @@
 #define BUFFER_LEN 100      // Размер буфера для SD и SV610
 #define ALT_BUFFER_SIZE 20  // Количество измерений высоты для определения приземления
 #define ALT_LAND_DELTA 20   // Максимальная разница высот для установки флага 'Land' (см)
+#define IS_SD_REQUIRED 0    // Если установлен '0', то запуск можно проводить без microSD
 #define CLEAR_LOGS 0        // Удалять все логи после перезапуска, если не 0
 #define SD_SS_PIN 10        // Пин выбора устройства (Slave Select) для microSD
 #define SPEAKER_PIN 6       // Пин динамика (по умолчанию D6)
@@ -87,7 +88,11 @@ void init_state() {
   switch (errorCode) {
     case 1: Post.send("b", 2); break;  // Ошибка BMP280
     case 2: Post.send("c", 2); break;  // Ошибка MPU6050/9250
-    case 3: Post.send("d", 2); break;  // Ошибка SD-карты
+    case 3: Post.send("d", 2);         // Ошибка SD-карты
+#if IS_SD_REQUIRED == 0
+      currentState = MAIN;  // Возможность прололжения без SD
+#endif
+      break;
   }
 }
 
