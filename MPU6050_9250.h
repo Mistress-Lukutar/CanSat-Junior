@@ -1,7 +1,5 @@
 #pragma once
 #define MPU_DEFAULT_ADDR 0x68
-#define MPU_DEFAULT_ID 0x75
-#define MPU_DEFAULT_ALT_ID 0x71
 
 #define CLOCK_INT 0b000
 #define CLOCK_PLL_X 0b001
@@ -55,8 +53,7 @@ bool MPU_Init(uint8_t altAddr = MPU_DEFAULT_ADDR, uint8_t ctlrByte = CLOCK_INT) 
   uint8_t mpuStatus = 0;
   _ctrlByte = ctlrByte;
   IIC_Begin();
-  if (IIC_ReadByte(mpu_addr, mpuRegs.WHO_AM_I) != MPU_DEFAULT_ID)
-    if ((IIC_ReadByte(mpu_addr, mpuRegs.WHO_AM_I) != MPU_DEFAULT_ALT_ID)) return 0;
+  if (IIC_ReadByte(mpu_addr, mpuRegs.WHO_AM_I) == 0x00 || IIC_ReadByte(mpu_addr, mpuRegs.WHO_AM_I) == 0xFF) return 0;
   IIC_WriteByte(mpu_addr, mpuRegs.PWR_MGMT_1, _ctrlByte);
   MPU_SetScales(AFS_SEL_16G, GFS_SEL_1000);
   return 1;
