@@ -13,7 +13,7 @@
  */
 
 /*___________________________________ЗАГОЛОВОЧНЫЕ ФАЙЛЫ____________________________________*/
-#include "BMP280.h"        // Датчик давления и температуры
+#include "BMP180_280.h"    // Датчик давления и температуры
 #include "MPU6050_9250.h"  // Акселерометр и гироскоп
 #include <SD.h>            // Работа с microSD картой
 #include "POST_Encoder.h"  // Кодирование POST-сообщений для динамика
@@ -26,6 +26,7 @@
 #define TEAM_NAME "SHARAGA_FOREVER!"  // Название команды
 #define DATA_PERIOD 70                // Период обновления данных (мс)
 #define DATA_PERIOD_LND 250           // Период обновления после посадки (мс)
+#define REINIT_COUNT 10               // Столько раз будет произведена попытка подключить датчики
 
 /*__________________________________ОПАСНАЯ ЗОНА НАСТРОЕК__________________________________*/
 #define BUFFER_LEN 100      // Размер буфера для SD и SV610
@@ -38,6 +39,11 @@
 #define START_TH 100        // Установка флага старта при превышении данной высоты (см)
 #define APG_TH 5            // Установка флага апогея при разнице давления > [значения] (Па)
 #define RS_TIMEOUT 5000     // Время работы системы спасения после активации (мс)
+
+/*__________________________________КОДЫ ОШИБОК НЕ МЕНЯТЬ__________________________________*/
+#define ERR_BMP (1 << 0)  // Ошибка инициализации BMPx80
+#define ERR_MPU (1 << 1)  // Ошибка инициализации MPU6050/9250
+#define ERR_SD (1 << 2)   // Ошибка инициализации microSD
 /*_________________________________СОСТОЯНИЯ АВТОМАТА_____________________________________*/
 enum states : uint8_t { INIT,
                         MAIN,
@@ -70,14 +76,15 @@ int32_t altBuf[ALT_BUFFER_SIZE];  // Кольцевой буфер для хра
  */
 void init_state() {
   static uint8_t errorCode = 0;
+  static uint8_t errCount = 0;
   if (currentState != lastState) {
-    lastState = currentState;
-    if (!BMP280_Init()) errorCode = 1;
-    if (!MPU_Init()) errorCode = 2;
-    if (!SD.begin(SD_SS_PIN)) errorCode = 3;
+    if (!BMP_Init()) errorCode |= ERR_BMP;
+    //if (!MPU_Init()) errorCode |= ERR_MPU;
+    if (!SD.begin(SD_SS_PIN)) errorCode |= ERR_SD;
     if (!errorCode) {
       delay(2000);        // Задержка для SV610
       Post.send("a", 2);  // Отправка POST_OK
+      lastState = currentState;
       currentState = MAIN;
 #if CLEAR_LOGS != 0
       SD.remove(SD_FNAME);
@@ -85,14 +92,30 @@ void init_state() {
       return;
     }
   }
-  switch (errorCode) {
-    case 1: Post.send("b", 2); break;  // Ошибка BMP280
-    case 2: Post.send("c", 2); break;  // Ошибка MPU6050/9250
-    case 3: Post.send("d", 2);         // Ошибка SD-карты
+  errCount++;
+  Serial.print("Error: ");
+  if (errorCode & ERR_BMP) {  // Ошибка BMP280
+    Serial.println("BMP");
+    Post.send("b", 2);
+  } else if (errorCode & ERR_MPU) {  // Ошибка MPU6050/9250
+    Serial.println("MPU");
+    Post.send("c", 2);
+  } else if (errorCode & ERR_SD) {  // Ошибка SD-карты
+    Serial.println("SD");
+    Post.send("d", 2);
 #if IS_SD_REQUIRED == 0
-      currentState = MAIN;  // Возможность прололжения без SD
+    lastState = currentState;
+    currentState = MAIN;  // Возможность прололжения без SD
 #endif
-      break;
+  }
+  delay(500);
+  if (errCount == REINIT_COUNT) {
+    Serial.print("Failed to start subsystems:");
+    if (errorCode & ERR_BMP) Serial.print(" BMP");
+    if (errorCode & ERR_MPU) Serial.print(" MPU");
+    if (errorCode & ERR_SD) Serial.print(" SD");
+    Serial.println();
+    while (1) {};  // Цикл критической ошибки, сброс только по перезагрузке
   }
 }
 
@@ -110,10 +133,10 @@ void main_state() {
 
     // Пропускаем 10 измерений для 'прогрева' датчика
     for (uint8_t i = 0; i < 10; i++)
-      BMP280_ReadData(&currData.temp, &currData.press0);
+      BMP_ReadData(&currData.temp, &currData.press0);
 
     // Устанавливаем начальное давление на старте
-    BMP280_ReadData(&currData.temp, &currData.press0);
+    BMP_ReadData(&currData.temp, &currData.press0);
 
     // Записываем начальные данные акселерометра
     MPU_ReadData(currData.accelData, currData.gyroData);
@@ -125,10 +148,10 @@ void main_state() {
 
   if (millis() - currData.time >= DATA_PERIOD) {
     currData.time = millis();
-    BMP280_ReadData(&currData.temp, &currData.press);
+    BMP_ReadData(&currData.temp, &currData.press);
     MPU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
-    currData.altitude = BMP280_GetAltitude(&currData.press, &currData.press0);
+    currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);
     addAltitudeToBuffer(currData.altitude);
 
     // Фиксируем старт
@@ -174,10 +197,10 @@ void landing_state() {
   // Запись данных в стуктуру по таймеру
   if (millis() - currData.time >= DATA_PERIOD_LND) {
     currData.time = millis();
-    BMP280_ReadData(&currData.temp, &currData.press);
+    BMP_ReadData(&currData.temp, &currData.press);
     MPU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
-    currData.altitude = BMP280_GetAltitude(&currData.press, &currData.press0);
+    currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);
     UART_SendData(&currData);
     SD_SaveData(SD_FNAME, &currData);
   }
