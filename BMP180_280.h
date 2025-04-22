@@ -113,10 +113,10 @@ struct BMP280_CalData {
  * @brief Calibration data structure for BMP180
  */
 struct BMP180_CalData {
-  int16_t AC1, AC2, AC3;
-  uint16_t AC4, AC5, AC6;
+  int16_t ac1, ac2, ac3;
+  uint16_t ac4, ac5, ac6;
   int16_t b1, b2;
-  int16_t MB, MC, MD;
+  int16_t mb, mc, md;
 } calData180;
 
 /**
@@ -151,7 +151,10 @@ inline void BMP280_ReadCalData() {
 inline void BMP180_ReadCalData() {
   uint8_t* pt = (uint8_t*)&calData180;
   IIC_Request(bmp_addr, bmp180Regs.calib00, 22);
-  for (uint8_t i = 0; i < sizeof(calData180); i++) pt[i] = IIC_Read();
+  for (uint8_t i = 0; i < sizeof(calData180); i += 2) {
+    pt[i + 1] = IIC_Read();
+    pt[i] = IIC_Read();
+  }
 }
 
 /**
@@ -200,9 +203,9 @@ bool BMP_Init(uint8_t ctrl_measByte = BMP280_MODE_SLEEP | BMP280_PRESS_OSx8 | BM
  */
 int32_t BMP180_ReadRawTemp() {
   IIC_WriteByte(bmp_addr, bmp180Regs.control, BMP180_CMD_TEMP);
-  _delay_ms(5);  // Max conversion time 4.5ms
+  _delay_ms(15);  // Max conversion time 4.5ms
   IIC_Request(bmp_addr, bmp180Regs.resultMSB, 2);
-  return ((int32_t)IIC_Read() << 8) | (int32_t)IIC_Read();
+  return (int32_t)(((uint16_t)IIC_Read() << 8) | (uint16_t)IIC_Read());
 }
 
 /**
@@ -277,45 +280,38 @@ bool BMP_ReadData(int32_t* temperature, uint32_t* pressure) {
     *temperature = (t_fine * 5 + 128) >> 8;
   } else {  // BMP180
     // Read raw temperature
-    int32_t UT = BMP180_ReadRawTemp();
-    int32_t UP = BMP180_ReadRawPressure();
+    int32_t ut = BMP180_ReadRawTemp();
+    int32_t up = BMP180_ReadRawPressure();
 
-    // Calculate true temperature
-    int32_t X1 = ((UT - (int32_t)calData180.AC6) * (int32_t)calData180.AC5) >> 15;
-    int32_t X2 = ((int32_t)calData180.MC << 11) / (X1 + (int32_t)calData180.MD);
-    t_fine = X1 + X2;
-    *temperature = (t_fine + 8) >> 4;  // 0.1°C
-    Serial.println(UT);
-    Serial.println(X1);
-    Serial.println(X2);
-    Serial.println(t_fine);
-    Serial.println(*temperature);
-    // Calculate true pressure
-    int32_t B6 = t_fine - 4000;
-    X1 = ((int32_t)calData180.b2 * ((B6 * B6) >> 12)) >> 11;
-    X2 = ((int32_t)calData180.AC2 * B6) >> 11;
-    int32_t X3 = X1 + X2;
-    int32_t B3 = ((((int32_t)calData180.AC1 * 4 + X3) << bmp_oss) + 2) >> 2;
+    // Calculate true temperature (0.01 degC)
+    var1 = ((ut - (int32_t)calData180.ac6) * (int32_t)calData180.ac5) >> 15;
+    var2 = ((int32_t)calData180.mc << 11) / (var1 + (int32_t)calData180.md);
+    t_fine = var1 + var2;
+    *temperature = (int32_t)(((t_fine + 8) >> 4) * 10.0);
 
-    X1 = ((int32_t)calData180.AC3 * B6) >> 13;
-    X2 = ((int32_t)calData180.b1 * ((B6 * B6) >> 12)) >> 16;
-    X3 = ((X1 + X2) + 2) >> 2;
-    uint32_t B4 = ((uint32_t)calData180.AC4 * (uint32_t)(X3 + 32768)) >> 15;
-    uint32_t B7 = ((uint32_t)UP - (uint32_t)B3) * (50000UL >> bmp_oss);
-
+    // Calculate true pressure (Pa)
+    int32_t b6 = t_fine - 4000;
+    int32_t var1 = ((int32_t)calData180.b2 * ((b6 * b6) >> 12)) >> 11;
+    int32_t var2 = ((int32_t)calData180.ac2 * b6) >> 11;
+    int32_t x3 = var1 + var2;
+    int32_t b3 = ((((int32_t)calData180.ac1 * 4 + x3) << bmp_oss) + 2) >> 2;
+    var1 = ((int32_t)calData180.ac3 * b6) >> 13;
+    var2 = ((int32_t)calData180.b1 * ((b6 * b6) >> 12)) >> 16;
+    x3 = ((var1 + var2) + 2) >> 2;
+    uint32_t b4 = ((uint32_t)calData180.ac4 * (uint32_t)(x3 + 32768)) >> 15;
+    uint32_t b7 = ((uint32_t)up - b3) * (uint32_t)(50000UL >> bmp_oss);
     int32_t p;
-    if (B7 < 0x80000000)
-      p = (B7 << 1) / B4;
-    else
-      p = (B7 / B4) << 1;
-
-    X1 = (p >> 8) * (p >> 8);
-    X1 = (X1 * 3038) >> 16;
-    X2 = (-7357 * p) >> 16;
-    *pressure = p + ((X1 + X2 + 3791) >> 4);  // Pressure in Pa
+    if (b7 < 0x80000000) {
+      p = (b7 << 1) / b4;
+    } else {
+      p = (b7 / b4) << 1;
+    }
+    var1 = (p >> 8) * (p >> 8);
+    var1 = (var1 * 3038) >> 16;
+    var2 = (-7357 * p) >> 16;
+    p += (var1 + var2 + (int32_t)3791) >> 4;
+    *pressure = (uint32_t)p;
   }
-
-  return true;
 }
 
 /**
