@@ -67,6 +67,8 @@ struct SensorData {
   uint8_t flags;         ///< Флаги состояния (0|0|0|0|Land|ResSys|Apg|Start)
 } currData;
 
+BMP_Device bmp; // Структура датчика давления BMP280 или BMP180
+
 char strBuf[BUFFER_LEN];          // Буфер для хранения строк для передачи по радио и записи на SD
 int32_t altBuf[ALT_BUFFER_SIZE];  // Кольцевой буфер для хранения последних показаний высоты
 /*_____________________________________ФУНКЦИИ СОСТОЯНИЙ___________________________________*/
@@ -78,7 +80,7 @@ void init_state() {
   static uint8_t errorCode = 0;
   static uint8_t errCount = 0;
   if (currentState != lastState) {
-    if (!BMP_Init()) errorCode |= ERR_BMP;
+    if (!BMP_Init(&bmp)) errorCode |= ERR_BMP;
     //if (!MPU_Init()) errorCode |= ERR_MPU;
     if (!SD.begin(SD_SS_PIN)) errorCode |= ERR_SD;
     if (!errorCode) {
@@ -133,10 +135,10 @@ void main_state() {
 
     // Пропускаем 10 измерений для 'прогрева' датчика
     for (uint8_t i = 0; i < 10; i++)
-      BMP_ReadData(&currData.temp, &currData.press0);
+      BMP_ReadData(&bmp, &currData.temp, &currData.press0);
 
     // Устанавливаем начальное давление на старте
-    BMP_ReadData(&currData.temp, &currData.press0);
+    BMP_ReadData(&bmp, &currData.temp, &currData.press0);
 
     // Записываем начальные данные акселерометра
     MPU_ReadData(currData.accelData, currData.gyroData);
@@ -148,7 +150,7 @@ void main_state() {
 
   if (millis() - currData.time >= DATA_PERIOD) {
     currData.time = millis();
-    BMP_ReadData(&currData.temp, &currData.press);
+    BMP_ReadData(&bmp, &currData.temp, &currData.press);
     MPU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
     currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);
@@ -197,7 +199,7 @@ void landing_state() {
   // Запись данных в стуктуру по таймеру
   if (millis() - currData.time >= DATA_PERIOD_LND) {
     currData.time = millis();
-    BMP_ReadData(&currData.temp, &currData.press);
+    BMP_ReadData(&bmp, &currData.temp, &currData.press);
     MPU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
     currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);

@@ -2,156 +2,176 @@
 #include "IICFuncs.h"
 
 /**
- * @def BMP280_DEFAULT_ADDR
- * @brief Default I2C address for BMP280 sensor
+ * @brief Default I2C addresses for BMP sensors
  */
-#define BMP280_DEFAULT_ADDR 0x76
-/**
- * @def BMP180_DEFAULT_ADDR
- * @brief Default I2C address for BMP180 sensor
- */
-#define BMP180_DEFAULT_ADDR 0x77
+enum BMP_Address {
+  BMP280_ADDR = 0x76,
+  BMP180_ADDR = 0x77
+};
 
 /**
- * @def BMP280_DEFAULT_ID
- * @brief Default chip ID for BMP280 sensor
+ * @brief Default chip IDs for BMP sensors
  */
-#define BMP280_DEFAULT_ID 0x58
+enum BMP_ChipID {
+  BMP280_ID = 0x58,
+  BMP180_ID = 0x55
+};
+
 /**
- * @def BMP180_DEFAULT_ID
- * @brief Default chip ID for BMP180 sensor
+ * @brief BMP280 operation modes
  */
-#define BMP180_DEFAULT_ID 0x55
+enum BMP280_Mode {
+  SLEEP = 0b00,
+  FORCED = 0b01,
+  NORMAL = 0b11
+};
 
-// BMP280 specific defines
-#define BMP280_MODE_SLEEP 0b00
-#define BMP280_MODE_NORMAL 0b11
-#define BMP280_MODE_FORCED 0b01
+/**
+ * @brief BMP280 oversampling settings
+ */
+enum BMP280_OS {
+  OS_SKIP = 0b000,
+  OS_x1 = 0b001,
+  OS_x2 = 0b010,
+  OS_x4 = 0b011,
+  OS_x8 = 0b100,
+  OS_x16 = 0b111
+};
 
-#define BMP280_PRESS_OSx0 0b000 << 2
-#define BMP280_PRESS_OSx1 0b001 << 2
-#define BMP280_PRESS_OSx2 0b010 << 2
-#define BMP280_PRESS_OSx4 0b011 << 2
-#define BMP280_PRESS_OSx8 0b100 << 2
-#define BMP280_PRESS_OSx16 0b111 << 2
+/**
+ * @brief BMP280 IIR filter coefficients
+ */
+enum BMP280_Filter {
+  IIR_OFF = 0b000,
+  IIR_2 = 0b001,
+  IIR_4 = 0b010,
+  IIR_8 = 0b011,
+  IIR_16 = 0b100
+};
 
-#define BMP280_TEMP_OSx0 0b000 << 5
-#define BMP280_TEMP_OSx1 0b001 << 5
-#define BMP280_TEMP_OSx2 0b010 << 5
-#define BMP280_TEMP_OSx4 0b011 << 5
-#define BMP280_TEMP_OSx8 0b100 << 5
-#define BMP280_TEMP_OSx16 0b111 << 5
+/**
+ * @brief BMP280 standby time settings
+ */
+enum BMP280_Standby {
+  STBY_0_5 = (0b000 << 5),
+  STBY_62_5 = (0b001 << 5),
+  STBY_125 = (0b010 << 5),
+  STBY_250 = (0b011 << 5),
+  STBY_500 = (0b100 << 5),
+  STBY_1000 = (0b101 << 5),
+  STBY_2000 = (0b110 << 5),
+  STBY_4000 = (0b111 << 5)
+};
 
-#define BMP280_IIR_0 0b000 << 2
-#define BMP280_IIR_2 0b001 << 2
-#define BMP280_IIR_4 0b010 << 2
-#define BMP280_IIR_8 0b011 << 2
-#define BMP280_IIR_16 0b100 << 2
-
-#define BMP280_STBY_0_5 0b000 << 5
-#define BMP280_STBY_62_5 0b001 << 5
-#define BMP280_STBY_125 0b010 << 5
-#define BMP280_STBY_250 0b011 << 5
-#define BMP280_STBY_500 0b100 << 5
-#define BMP280_STBY_1000 0b101 << 5
-#define BMP280_STBY_2000 0b110 << 5
-#define BMP280_STBY_4000 0b111 << 5
-
-// BMP180 specific defines
-#define BMP180_REG_CONTROL 0xF4
-#define BMP180_REG_RESULT 0xF6
-#define BMP180_CMD_TEMP 0x2E
-#define BMP180_CMD_PRESS 0x34
-
-// Oversampling modes for BMP180
+/**
+ * @brief BMP180 oversampling modes
+ */
 enum BMP180_OSS {
-  BMP180_OSS_ULP = 0,  // Ultra low power
-  BMP180_OSS_STD = 1,  // Standard
-  BMP180_OSS_HR = 2,   // High resolution
-  BMP180_OSS_UHR = 3   // Ultra high resolution
+  OSS_ULP = (0 << 6),  // Ultra low power (4.5ms)
+  OSS_STD = (1 << 6),  // Standard (7.5ms)
+  OSS_HR = (2 << 6),   // High resolution (13.5ms)
+  OSS_UHR = (3 << 6)   // Ultra high resolution (25.5ms)
 };
 
 /**
- * @struct BMP280_RegMap
- * @brief Register map for BMP280 sensor
+ * @brief BMP sensor type identifiers
  */
-struct BMP280_RegMap {
-  const uint8_t calib00;      // Calibration Data 00 (0x88)
-  const uint8_t chipID;       // Device ID (0xD0)
-  const uint8_t reset;        // Soft Reset (0xE0)
-  const uint8_t status;       // Sensor Status (0xF3)
-  const uint8_t ctrl_meas;    // Control Measurement (0xF4)
-  const uint8_t config;       // Configuration (0xF5)
-  const uint8_t pressureMSB;  // Pressure Data (MSB) (0xF7)
-  const uint8_t tempMSB;      // Temperature Data (MSB) (0xFA)
+enum BMP_Type {
+  BMP180,
+  BMP280
 };
 
 /**
- * @struct BMP180_RegMap
- * @brief Register map for BMP180 sensor
+ * @brief BMP280 register map structure
  */
-struct BMP180_RegMap {
-  const uint8_t calib00;    // Calibration Data 00 (0xAA)
-  const uint8_t chipID;     // Device ID (0xD0)
-  const uint8_t control;    // Control register (0xF4)
-  const uint8_t resultMSB;  // Result Data (MSB) (0xF6)
-};
+typedef struct {
+  uint8_t calib00;      // 0x88
+  uint8_t chipID;       // 0xD0
+  uint8_t reset;        // 0xE0
+  uint8_t status;       // 0xF3
+  uint8_t ctrl_meas;    // 0xF4
+  uint8_t config;       // 0xF5
+  uint8_t pressureMSB;  // 0xF7
+  uint8_t tempMSB;      // 0xFA
+} BMP280_RegMap;
 
 /**
- * @struct BMP280_CalData
- * @brief Calibration data structure for BMP280
+ * @brief BMP180 register map structure
  */
-struct BMP280_CalData {
+typedef struct {
+  uint8_t calib00;    // 0xAA
+  uint8_t chipID;     // 0xD0
+  uint8_t control;    // 0xF4
+  uint8_t resultMSB;  // 0xF6
+} BMP180_RegMap;
+
+/**
+ * @brief BMP280 calibration data structure
+ */
+typedef struct {
   uint16_t dig_T1;
   int16_t dig_T2, dig_T3;
   uint16_t dig_P1;
   int16_t dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
-} calData280;
+} BMP280_CalData;
 
 /**
- * @struct BMP180_CalData
- * @brief Calibration data structure for BMP180
+ * @brief BMP180 calibration data structure
  */
-struct BMP180_CalData {
+typedef struct {
   int16_t ac1, ac2, ac3;
   uint16_t ac4, ac5, ac6;
   int16_t b1, b2;
   int16_t mb, mc, md;
-} calData180;
+} BMP180_CalData;
 
 /**
- * @struct BMP280_bmp280RawData
- * @brief Raw data structure for BMP280/BMP180
+ * @brief BMP sensor raw data structure
  */
-struct BMP280_bmp280RawData {
-  int32_t Pressure, Temperature;
-} bmpRawData;
-
-uint8_t bmp_addr;
-uint8_t bmp_type;  // 0 = BMP180, 1 = BMP280
-uint8_t bmp_mode;
-uint8_t bmp_oss;  // Oversampling setting for BMP180
-uint8_t bmp_ctrl_meas;
-
-BMP280_RegMap bmp280Regs = { 0x88, 0xD0, 0xE0, 0xF3, 0xF4, 0xF5, 0xF7, 0xFA };
-BMP180_RegMap bmp180Regs = { 0xAA, 0xD0, 0xF4, 0xF6 };
+typedef struct {
+  int32_t pressure;
+  int32_t temperature;
+} BMP_RawData;
 
 /**
- * @brief Read calibration data from BMP280
+ * @brief Main BMP sensor device structure
  */
-inline void BMP280_ReadCalData() {
-  uint8_t* pt = (uint8_t*)&calData280;
-  IIC_Request(bmp_addr, bmp280Regs.calib00, 24);
-  for (uint8_t i = 0; i < sizeof(calData280); i++) pt[i] = IIC_Read();
+typedef struct {
+  BMP_Type type;
+  uint8_t address;
+  uint8_t ctrl_meas;
+  uint8_t config;
+  BMP_RawData raw;
+  union {
+    BMP280_CalData cal280;
+    BMP180_CalData cal180;
+  } cal;
+} BMP_Device;
+
+// Register maps
+const BMP280_RegMap bmp280Regs = { 0x88, 0xD0, 0xE0, 0xF3, 0xF4, 0xF5, 0xF7, 0xFA };
+const BMP180_RegMap bmp180Regs = { 0xAA, 0xD0, 0xF4, 0xF6 };
+
+/**
+ * @brief Read calibration data for BMP280
+ * @param dev Pointer to BMP device structure
+ */
+void BMP280_ReadCalData(BMP_Device* dev) {
+  uint8_t* pt = (uint8_t*)&dev->cal.cal280;
+  IIC_Request(dev->address, bmp280Regs.calib00, 24);
+  for (uint8_t i = 0; i < sizeof(dev->cal.cal280); i++) {
+    pt[i] = IIC_Read();
+  }
 }
 
 /**
- * @brief Read calibration data from BMP180
+ * @brief Read calibration data for BMP180
+ * @param dev Pointer to BMP device structure
  */
-inline void BMP180_ReadCalData() {
-  uint8_t* pt = (uint8_t*)&calData180;
-  IIC_Request(bmp_addr, bmp180Regs.calib00, 22);
-  for (uint8_t i = 0; i < sizeof(calData180); i += 2) {
+void BMP180_ReadCalData(BMP_Device* dev) {
+  uint8_t* pt = (uint8_t*)&dev->cal.cal180;
+  IIC_Request(dev->address, bmp180Regs.calib00, 22);
+  for (uint8_t i = 0; i < sizeof(dev->cal.cal180); i += 2) {
     pt[i + 1] = IIC_Read();
     pt[i] = IIC_Read();
   }
@@ -159,147 +179,138 @@ inline void BMP180_ReadCalData() {
 
 /**
  * @brief Initialize BMP sensor
- * @param ctrl_measByte Control measurement byte for BMP280
- * @param configByte Configuration byte for BMP280
- * @param oss Oversampling setting for BMP180
- * @param altAddr Alternative I2C address
+ * @param dev Pointer to BMP device structure
  * @return true if initialization succeeded, false otherwise
  */
-bool BMP_Init(uint8_t ctrl_measByte = BMP280_MODE_SLEEP | BMP280_PRESS_OSx8 | BMP280_TEMP_OSx1,
-              uint8_t configByte = BMP280_IIR_8 | BMP280_STBY_0_5,
-              uint8_t oss = BMP180_OSS_STD) {
-  bmp_ctrl_meas = ctrl_measByte;
-  bmp_oss = oss;
+bool BMP_Init(BMP_Device* dev) {
   IIC_Begin();
 
   // Try BMP280 first
-  bmp_addr = BMP280_DEFAULT_ADDR;
-  uint8_t id = IIC_ReadByte(bmp_addr, bmp280Regs.chipID);
-  if (id == BMP280_DEFAULT_ID) {
-    bmp_type = 1;
-    BMP280_ReadCalData();
-    IIC_WriteByte(bmp_addr, bmp280Regs.ctrl_meas, ctrl_measByte);
-    IIC_WriteByte(bmp_addr, bmp280Regs.config, configByte);
-    Serial.println("BMP280");
+  dev->address = BMP_Address::BMP280_ADDR;
+  uint8_t id = IIC_ReadByte(dev->address, bmp280Regs.chipID);
+  if (id == BMP_ChipID::BMP280_ID) {
+    dev->type = BMP_Type::BMP280;
+    BMP280_ReadCalData(dev);
+    dev->ctrl_meas = (BMP280_Mode::NORMAL | (BMP280_OS::OS_x8 << 2) | (BMP280_OS::OS_x1 << 5));
+    dev->config = BMP280_Filter::IIR_8 | BMP280_Standby::STBY_0_5;
+    IIC_WriteByte(dev->address, bmp280Regs.ctrl_meas, dev->ctrl_meas);
+    IIC_WriteByte(dev->address, bmp280Regs.config, dev->config);
     return true;
   }
 
   // Try BMP180 if BMP280 not found
-  bmp_addr = BMP180_DEFAULT_ADDR;
-  id = IIC_ReadByte(bmp_addr, bmp180Regs.chipID);
-  if (id == BMP180_DEFAULT_ID) {
-    bmp_type = 0;
-    BMP180_ReadCalData();
-    Serial.println("BMP180");
+  dev->address = BMP_Address::BMP180_ADDR;
+  id = IIC_ReadByte(dev->address, bmp180Regs.chipID);
+  if (id == BMP_ChipID::BMP180_ID) {
+    dev->type = BMP_Type::BMP180;
+    dev->ctrl_meas = BMP180_OSS::OSS_STD;
+    IIC_WriteByte(dev->address, bmp180Regs.control, dev->config);
+    BMP180_ReadCalData(dev);
     return true;
   }
-  Serial.println("BMP_ERR: " + String(id));
+
   return false;
 }
 
 /**
  * @brief Read raw temperature from BMP180
+ * @param dev Pointer to BMP device structure
  * @return Raw temperature value
  */
-int32_t BMP180_ReadRawTemp() {
-  IIC_WriteByte(bmp_addr, bmp180Regs.control, BMP180_CMD_TEMP);
-  _delay_ms(15);  // Max conversion time 4.5ms
-  IIC_Request(bmp_addr, bmp180Regs.resultMSB, 2);
-  return (int32_t)(((uint16_t)IIC_Read() << 8) | (uint16_t)IIC_Read());
+int32_t BMP180_ReadRawTemp(BMP_Device* dev) {
+  IIC_WriteByte(dev->address, bmp180Regs.control, 0x2E);
+  _delay_ms(5);  // Max conversion time 4.5ms
+  IIC_Request(dev->address, bmp180Regs.resultMSB, 2);
+  return (int32_t)(((uint16_t)IIC_Read() << 8) | IIC_Read());
 }
 
 /**
  * @brief Read raw pressure from BMP180
+ * @param dev Pointer to BMP device structure
  * @return Raw pressure value
  */
-int32_t BMP180_ReadRawPressure() {
-  uint8_t cmd = BMP180_CMD_PRESS | (bmp_oss << 6);
-  IIC_WriteByte(bmp_addr, bmp180Regs.control, cmd);
+int32_t BMP180_ReadRawPressure(BMP_Device* dev) {
+  uint8_t cmd = 0x34 | dev->ctrl_meas;
+  IIC_WriteByte(dev->address, bmp180Regs.control, cmd);
 
-  // Wait according to oversampling setting
-  switch (bmp_oss) {
-    case BMP180_OSS_ULP: _delay_ms(5); break;
-    case BMP180_OSS_STD: _delay_ms(8); break;
-    case BMP180_OSS_HR: _delay_ms(14); break;
-    case BMP180_OSS_UHR: _delay_ms(26); break;
+ // Wait according to oversampling setting
+  switch (dev->ctrl_meas) {
+    case BMP180_OSS::OSS_ULP: _delay_ms(5); break;
+    case BMP180_OSS::OSS_STD: _delay_ms(8); break;
+    case BMP180_OSS::OSS_HR: _delay_ms(14); break;
+    case BMP180_OSS::OSS_UHR: _delay_ms(26); break;
   }
 
-  IIC_Request(bmp_addr, bmp180Regs.resultMSB, 3);
-  return (((int32_t)IIC_Read() << 16) | ((int32_t)IIC_Read() << 8) | (int32_t)IIC_Read()) >> (8 - bmp_oss);
+  IIC_Request(dev->address, bmp180Regs.resultMSB, 3);
+  return (((int32_t)IIC_Read() << 16) | ((int32_t)IIC_Read() << 8) | IIC_Read()) >> (8 - (dev->ctrl_meas>>6));
 }
 
 /**
- * @brief Read temperature and pressure data from sensor
- * @param temperature Pointer to store temperature (centigrade * 10^2)
- * @param pressure Pointer to store pressure (Pa)
- * @return true if read succeeded, false otherwise
+ * @brief Read and calculate compensated temperature and pressure
+ * @param dev Pointer to BMP device structure
+ * @param temperature Output for compensated temperature (centigrade * 100)
+ * @param pressure Output for compensated pressure (Pa)
+ * @return true if successful, false otherwise
  */
-bool BMP_ReadData(int32_t* temperature, uint32_t* pressure) {
-  static int32_t var1, var2, t_fine;
-  static bool pr_measuring, measuring;
+bool BMP_ReadData(BMP_Device* dev, int32_t* temperature, uint32_t* pressure) {
+  int32_t var1, var2, t_fine;
 
-  if (bmp_type) {  // BMP280
-    if (bmp_ctrl_meas | BMP280_MODE_SLEEP) {
-      IIC_WriteByte(bmp_addr, bmp280Regs.ctrl_meas, bmp_ctrl_meas | BMP280_MODE_FORCED);
+  if (dev->type == BMP_Type::BMP280) {
+    // BMP280 measurement logic
+    if (dev->ctrl_meas & BMP280_Mode::SLEEP) {
+      IIC_WriteByte(dev->address, bmp280Regs.ctrl_meas, dev->ctrl_meas | BMP280_Mode::FORCED);
     }
 
-    while (1) {
-      measuring = IIC_ReadByte(bmp_addr, bmp280Regs.status) & (1 << 3);
-      if (pr_measuring ^ measuring) {
-        pr_measuring = measuring;
-        if (!measuring) break;
-      }
-    }
+    // Wait for measurement completion
+    while (IIC_ReadByte(dev->address, bmp280Regs.status) & (1 << 3)) {};
 
-    IIC_Request(bmp_addr, bmp280Regs.pressureMSB, 6);
-    bmpRawData.Pressure = (int32_t)IIC_Read() << 12 | (int32_t)IIC_Read() << 4 | (int32_t)IIC_Read() >> 4;
-    bmpRawData.Temperature = (int32_t)IIC_Read() << 12 | (int32_t)IIC_Read() << 4 | (int32_t)IIC_Read() >> 4;
+    // Read raw data
+    IIC_Request(dev->address, bmp280Regs.pressureMSB, 6);
+    dev->raw.pressure = (int32_t)IIC_Read() << 12 | (int32_t)IIC_Read() << 4 | (int32_t)IIC_Read() >> 4;
+    dev->raw.temperature = (int32_t)IIC_Read() << 12 | (int32_t)IIC_Read() << 4 | (int32_t)IIC_Read() >> 4;
 
-    // Temperature calculation
-    var1 = ((((bmpRawData.Temperature >> 3) - ((int32_t)calData280.dig_T1 << 1))) * ((int32_t)calData280.dig_T2)) >> 11;
-    var2 = (((((bmpRawData.Temperature >> 4) - ((int32_t)calData280.dig_T1)) * ((bmpRawData.Temperature >> 4) - ((int32_t)calData280.dig_T1))) >> 12) * ((int32_t)calData280.dig_T3)) >> 14;
+    // Temperature compensation
+    var1 = (((dev->raw.temperature >> 3) - ((int32_t)dev->cal.cal280.dig_T1 << 1))) * ((int32_t)dev->cal.cal280.dig_T2) >> 11;
+    var2 = (((((dev->raw.temperature >> 4) - ((int32_t)dev->cal.cal280.dig_T1)) * ((dev->raw.temperature >> 4) - ((int32_t)dev->cal.cal280.dig_T1))) >> 12) * ((int32_t)dev->cal.cal280.dig_T3)) >> 14;
     t_fine = var1 + var2;
+    *temperature = (t_fine * 5 + 128) >> 8;
 
-    // Pressure calculation for BMP280
+    // Pressure compensation
     var1 = (((int32_t)t_fine) >> 1) - (int32_t)64000;
-    var2 = (((var1 >> 2) * (var1 >> 2)) >> 11) * ((int32_t)calData280.dig_P6);
-    var2 = var2 + ((var1 * ((int32_t)calData280.dig_P5)) << 1);
-    var2 = (var2 >> 2) + (((int32_t)calData280.dig_P4) << 16);
-    var1 = (((calData280.dig_P3 * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3) + ((((int32_t)calData280.dig_P2) * var1) >> 1)) >> 18;
-    var1 = ((((32768 + var1)) * ((int32_t)calData280.dig_P1)) >> 15);
+    var2 = (((var1 >> 2) * (var1 >> 2)) >> 11) * ((int32_t)dev->cal.cal280.dig_P6);
+    var2 = var2 + ((var1 * ((int32_t)dev->cal.cal280.dig_P5)) << 1);
+    var2 = (var2 >> 2) + (((int32_t)dev->cal.cal280.dig_P4) << 16);
+    var1 = (((dev->cal.cal280.dig_P3 * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3) + ((((int32_t)dev->cal.cal280.dig_P2) * var1) >> 1)) >> 18;
+    var1 = ((((32768 + var1)) * ((int32_t)dev->cal.cal280.dig_P1)) >> 15);
     if (var1 == 0) return false;
 
-    *pressure = (((uint32_t)(((int32_t)1048576) - bmpRawData.Pressure) - (var2 >> 12))) * 3125;
-    if (*pressure < 0x80000000) *pressure = (*pressure << 1) / ((uint32_t)var1);
-    else *pressure = (*pressure / (uint32_t)var1) * 2;
+    *pressure = (((uint32_t)(((int32_t)1048576) - dev->raw.pressure) - (var2 >> 12))) * 3125;
+    *pressure = (*pressure < 0x80000000) ? (*pressure << 1) / ((uint32_t)var1) : (*pressure / (uint32_t)var1) * 2;
 
-    var1 = (((int32_t)calData280.dig_P9) * ((int32_t)(((*pressure >> 3) * (*pressure >> 3)) >> 13))) >> 12;
-    var2 = (((int32_t)(*pressure >> 2)) * ((int32_t)calData280.dig_P8)) >> 13;
-    *pressure = (uint32_t)((int32_t)*pressure + ((var1 + var2 + calData280.dig_P7) >> 4));
+    var1 = (((int32_t)dev->cal.cal280.dig_P9) * ((int32_t)(((*pressure >> 3) * (*pressure >> 3)) >> 13))) >> 12;
+    var2 = (((int32_t)(*pressure >> 2)) * ((int32_t)dev->cal.cal280.dig_P8)) >> 13;
+    *pressure = (uint32_t)((int32_t)*pressure + ((var1 + var2 + dev->cal.cal280.dig_P7) >> 4));
+  } else {
+    // BMP180 measurement logic
+    int32_t ut = BMP180_ReadRawTemp(dev);
+    int32_t up = BMP180_ReadRawPressure(dev);
 
-    *temperature = (t_fine * 5 + 128) >> 8;
-  } else {  // BMP180
-    // Read raw temperature
-    int32_t ut = BMP180_ReadRawTemp();
-    int32_t up = BMP180_ReadRawPressure();
-
-    // Calculate true temperature (0.01 degC)
-    var1 = ((ut - (int32_t)calData180.ac6) * (int32_t)calData180.ac5) >> 15;
-    var2 = ((int32_t)calData180.mc << 11) / (var1 + (int32_t)calData180.md);
+    // Temperature compensation
+    var1 = ((ut - (int32_t)dev->cal.cal180.ac6) * (int32_t)dev->cal.cal180.ac5) >> 15;
+    var2 = ((int32_t)dev->cal.cal180.mc << 11) / (var1 + (int32_t)dev->cal.cal180.md);
     t_fine = var1 + var2;
     *temperature = (int32_t)(((t_fine + 8) >> 4) * 10.0);
-
-    // Calculate true pressure (Pa)
+    // Pressure compensation
     int32_t b6 = t_fine - 4000;
-    int32_t var1 = ((int32_t)calData180.b2 * ((b6 * b6) >> 12)) >> 11;
-    int32_t var2 = ((int32_t)calData180.ac2 * b6) >> 11;
+    var1 = ((int32_t)dev->cal.cal180.b2 * ((b6 * b6) >> 12)) >> 11;
+    var2 = ((int32_t)dev->cal.cal180.ac2 * b6) >> 11;
     int32_t x3 = var1 + var2;
-    int32_t b3 = ((((int32_t)calData180.ac1 * 4 + x3) << bmp_oss) + 2) >> 2;
-    var1 = ((int32_t)calData180.ac3 * b6) >> 13;
-    var2 = ((int32_t)calData180.b1 * ((b6 * b6) >> 12)) >> 16;
+    int32_t b3 = ((((int32_t)dev->cal.cal180.ac1 * 4 + x3) << (dev->ctrl_meas >> 6)) + 2) >> 2;
+    var1 = ((int32_t)dev->cal.cal180.ac3 * b6) >> 13;
+    var2 = ((int32_t)dev->cal.cal180.b1 * ((b6 * b6) >> 12)) >> 16;
     x3 = ((var1 + var2) + 2) >> 2;
-    uint32_t b4 = ((uint32_t)calData180.ac4 * (uint32_t)(x3 + 32768)) >> 15;
-    uint32_t b7 = ((uint32_t)up - b3) * (uint32_t)(50000UL >> bmp_oss);
+    uint32_t b4 = ((uint32_t)dev->cal.cal180.ac4 * (uint32_t)(x3 + 32768)) >> 15;
+    uint32_t b7 = ((uint32_t)up - b3) * (uint32_t)(50000UL >> (dev->ctrl_meas >> 6));
     int32_t p;
     if (b7 < 0x80000000) {
       p = (b7 << 1) / b4;
@@ -312,6 +323,8 @@ bool BMP_ReadData(int32_t* temperature, uint32_t* pressure) {
     p += (var1 + var2 + (int32_t)3791) >> 4;
     *pressure = (uint32_t)p;
   }
+
+  return true;
 }
 
 /**
