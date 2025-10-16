@@ -9,26 +9,26 @@
  * 
  * @author Nate Hunter
  * @date 2025-03-22
- * @link https://github.com/Nate-Hunter-max/CanSat-Junior GitHub репозиторий проекта
+ * @link https://github.com/Mistress-Lukutar/CanSat-Junior/tree/features/featherfdr-adapt GitHub репозиторий проекта
  */
 
 /*___________________________________ЗАГОЛОВОЧНЫЕ ФАЙЛЫ____________________________________*/
-#include "BMP180_280.h"    // Датчик давления и температуры
+#include "BMP280.h"    // Датчик давления и температуры
 #include "LSM6DS3.h"       // Акселерометр и гироскоп LSM6DS3
 #include <SD.h>            // Работа с microSD картой
 #include "POST_Encoder.h"  // Кодирование POST-сообщений для динамика
-#include "SX1268_LoRa.h"   // Передача данных по LoRa
+#include "e22_sx1268.h"    // Передача данных по LoRa
 
 /*_______________________________________НАСТРОЙКИ_________________________________________*/
 #define SD_FNAME "GG_WP.log"          // Имя файла на microSD (ВЕРХНИЙ_РЕГИСТР.log, до 8 символов)
 #define RS_DRV_PIN 9                  // Пин для управления системой спасения
 #define RS_EJC_HEIGHT 7000            // Высота срабатывания системы спасения (в см)
 #define POST_TONE 2600                // Частота сигнала POST динамика (Гц)
-#define TEAM_NAME "SHARAGA_FOREVER!"  // Название команды
-#define DATA_PERIOD 70                // Период обновления данных (мс)
+#define TEAM_NAME "MISTRESS_LUKUTAR"  // Название команды
+#define DATA_PERIOD 100               // Период обновления данных (мс)
 #define DATA_PERIOD_LND 250           // Период обновления после посадки (мс)
 #define REINIT_COUNT 2                // Столько раз будет произведена попытка подключить датчики
-//#define UART_LOG_FULL                 // Выводить в Serial телеметрию
+#define UART_LOG_FULL                 // Выводить в Serial телеметрию
 
 /*__________________________________ОПАСНАЯ ЗОНА НАСТРОЕК__________________________________*/
 #define BUFFER_LEN 100      // Размер буфера для SD и SV610
@@ -41,6 +41,25 @@
 #define START_TH 100        // Установка флага старта при превышении данной высоты (см)
 #define APG_TH 5            // Установка флага апогея при разнице давления > [значения] (Па)
 #define RS_TIMEOUT 5000     // Время работы системы спасения после активации (мс)
+
+/*_____________________________________НАСТРОЙКИ LORA_____________________________________*/
+
+// Пины модуля
+#define E22_NSS_PIN 8    // Chip select
+#define E22_BUSY_PIN A1  // PC1
+#define E22_NRST_PIN 7   // PD7
+#define E22_DIO1_PIN 2   // PD2
+#define E22_DIO2_PIN 3   // PD3
+#define E22_TXEN_PIN 4   // PD4
+#define E22_RXEN_PIN A3  // PC3
+
+// Конфигурация модуляции LoRa
+#define LORA_FREQUENCY 432800000UL  // 432.8 MHz
+#define LORA_SF SX1268_LORA_SF7
+#define LORA_BW SX1268_LORA_BW_250
+#define LORA_CR SX1268_LORA_CR_4_8
+#define LORA_TX_POWER 14  // dBm
+#define LORA_PREAMBLE_LEN 8
 
 /*__________________________________КОДЫ ОШИБОК НЕ МЕНЯТЬ__________________________________*/
 #define ERR_BMP (1 << 0)   // Ошибка инициализации BMPx80
@@ -70,22 +89,8 @@ struct SensorData {
   uint8_t flags;         ///< Флаги состояния (0|0|0|0|Land|ResSys|Apg|Start)
 } currData;
 
-BMP_Device bmp;      // Структура датчика давления BMP280 или BMP180
 LSM6DS3_Device imu;  // Структура датчика LSM6DS3
-SX1268_Device lora;  // Структура приемопередатчика LoRa
-
-// Структура настроек LoRa
-SX1268_LoRaConfig loracfg = {
-  432800000,             // frequency: 432.8 MHz
-  SX1268_LORA_BW_250,    // bandwidth: 250 kHz
-  SX1268_LORA_SF7,       // spreading_factor: 7
-  SX1268_LORA_CR_4_8,    // coding_rate: 4/8
-  8,                     // preamble_length
-  SX1268_MAX_POWER_DBM,  // power: 22 dBm
-  true,                  // explicit_header
-  true,                  // crc_enable
-  false                  // invert_iq
-};
+E22_Device lora;     // Структура приемопередатчика LoRa
 
 char strBuf[BUFFER_LEN];          // Буфер для хранения строк для передачи по радио и записи на SD
 int32_t altBuf[ALT_BUFFER_SIZE];  // Кольцевой буфер для хранения последних показаний высоты
@@ -101,20 +106,13 @@ void init_state() {
   if (currentState != lastState) {
 
     // Инициализация барометра
-    if (!BMP_Init(&bmp)) errorCode |= ERR_BMP;
+    if (!BMP280_Init()) errorCode |= ERR_BMP;
 
     // Инициализация 6-DOF IMU
     if (!LSM6DS3_Init(&imu, LSM6DS3_ADDR_HIGH)) errorCode |= ERR_IMU;
 
     // Инициализация LoRa
-    if (!SX1268_Begin(&lora)) errorCode |= ERR_LORA;
-
-    //TODO: Проверка LoRa чтением регистра с известным значением
-    /*
-    uint8_t loraSyncWord = 0;
-    SX1268_ReadRegister(&lora, SX1268_REG_LORA_SYNC_WORD_MSB, &loraSyncWord, 1);
-    Serial.println(loraSyncWord, HEX);
-    */
+    if (!E22_Init(&lora)) errorCode |= ERR_LORA;
 
     // Инициализация SD
     if (!SD.begin(SD_SS_PIN)) errorCode |= ERR_SD;
@@ -145,18 +143,30 @@ void init_state() {
     Serial.println("SD");
     Post.send("d", 2);
 #if IS_SD_REQUIRED == 0
-    lastState = currentState;
-    currentState = MAIN;  // Возможность продолжения без SD
+    if (errorCode ^ ERR_SD == 0) {
+      lastState = currentState;
+      currentState = MAIN;  // Возможность продолжения без SD
+    }
 #endif
   }
-  delay(500);
+  delay(100);
   if (errCount == REINIT_COUNT) {
     Serial.print("Failed to start subsystems:");
     if (errorCode & ERR_BMP) Serial.print(" BMP");
     if (errorCode & ERR_IMU) Serial.print(" LSM6DS3");
+    if (errorCode & ERR_LORA) Serial.print(" LORA");
     if (errorCode & ERR_SD) Serial.print(" SD");
+
     Serial.println();
-    while (1) {};  // Цикл критической ошибки, сброс только по перезагрузке
+    while (1) {
+      Post.update();
+      // Управление звуковым сигналом
+      if (Post.getSignal()) {
+        tone(SPEAKER_PIN, POST_TONE);  // Включение звука при наличии сигнала
+      } else {
+        noTone(SPEAKER_PIN);  // Выключение звука
+      }
+    };  // Цикл критической ошибки, сброс только по перезагрузке
   }
 }
 
@@ -172,8 +182,8 @@ void main_state() {
   if (currentState != lastState) {
     lastState = currentState;
 
-    // Пропускаем 10 измерений для 'прогрева' датчика
-    for (uint8_t i = 0; i < 10; i++) BMP_ReadData(&bmp, &currData.temp, &currData.press0);
+    // Пропускаем 50 измерений для 'прогрева' датчика
+    for (uint8_t i = 0; i < 50; i++) BMP280_ReadData(&currData.temp, &currData.press0);
 
     // Настройка LSM6DS3
     LSM6DS3_ConfigAccel(&imu, LSM6DS3_ODR_52_HZ, LSM6DS3_ACCEL_FS_16G);
@@ -182,17 +192,17 @@ void main_state() {
     LSM6DS3_EnableGyroAxes(&imu, 1, 1, 1);
 
     // Устанавливаем начальное давление на старте
-    BMP_ReadData(&bmp, &currData.temp, &currData.press0);
+    BMP280_ReadData(&currData.temp, &currData.press0);
     pressMin = currData.press0;
     currData.time = millis();
   }
 
   if (millis() - currData.time >= DATA_PERIOD) {
     currData.time = millis();
-    BMP_ReadData(&bmp, &currData.temp, &currData.press);
+    BMP280_ReadData(&currData.temp, &currData.press);
     IMU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
-    currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);
+    currData.altitude = BMP280_GetAltitude(&currData.press, &currData.press0);
     addAltitudeToBuffer(currData.altitude);
 
     // Фиксируем старт
@@ -219,7 +229,7 @@ void main_state() {
       currentState = LANDING;
     }
 
-    UART_SendData(&currData);
+    LORA_SendData(&currData);
     SD_SaveData(SD_FNAME, &currData);
   }
 }
@@ -238,11 +248,11 @@ void landing_state() {
   // Запись данных в стуктуру по таймеру
   if (millis() - currData.time >= DATA_PERIOD_LND) {
     currData.time = millis();
-    BMP_ReadData(&bmp, &currData.temp, &currData.press);
+    BMP280_ReadData(&currData.temp, &currData.press);
     IMU_ReadData(currData.accelData, currData.gyroData);
     StoreVectAbs(&currData);
-    currData.altitude = BMP_GetAltitude(&currData.press, &currData.press0);
-    UART_SendData(&currData);
+    currData.altitude = BMP280_GetAltitude(&currData.press, &currData.press0);
+    LORA_SendData(&currData);
     SD_SaveData(SD_FNAME, &currData);
   }
 
@@ -252,17 +262,29 @@ void landing_state() {
 
 /*__________________________________Точка входа_________________________________*/
 int main() {
-  init();                             // Инициализация ядра
-  Serial.begin(115200);               // Инициализация последовательного порта с baud rate 115200
-  Post.begin(150);                    // Инициализация POST пищалки с длительностью писка 'точки' 150 мс
-  SX1268_Init(&lora);                 // Начальная конфигурация LoRa
-  lora.config = loracfg;              // Настройки частоты, мощности и параметров модуляции Lora
-  pinMode(RS_DRV_PIN, OUTPUT);        // Установка пина управления драйвером СС как выход
-  pinMode(SS, OUTPUT);                // Установка пина Slave Select у microSD как выход
-  pinMode(lora.pins.cs_pin, OUTPUT);  // Установка пина NSS у LoRa как выход
-  digitalWrite(SS, 1);                // Выключение SD с шины SPI
-  digitalWrite(lora.pins.cs_pin, 1);  // Выключение LoRa с шины SPI
-  digitalWrite(RS_DRV_PIN, 1);        // Выключение CC, из-за P-Mosfet инвертировано
+  init();                       // Инициализация ядра
+  Serial.begin(115200);         // Инициализация последовательного порта с baud rate 115200
+  Post.begin(150);              // Инициализация POST пищалки с длительностью писка 'точки' 150 мс
+  pinMode(RS_DRV_PIN, OUTPUT);  // Установка пина управления драйвером СС как выход
+  digitalWrite(RS_DRV_PIN, 1);  // Выключение CC, из-за P-Mosfet инвертировано
+
+  // Установка параметров E22 модуля
+  lora.spi = &SPI;
+  lora.nss_pin = E22_NSS_PIN;
+  lora.busy_pin = E22_BUSY_PIN;
+  lora.nrst_pin = E22_NRST_PIN;
+  lora.dio1_pin = E22_DIO1_PIN;
+  lora.dio2_pin = E22_DIO2_PIN;
+  lora.txen_pin = E22_TXEN_PIN;
+  lora.rxen_pin = E22_RXEN_PIN;
+
+  // Установка параметров модуляции LoRa
+  lora.frequency = LORA_FREQUENCY;
+  lora.spreading_factor = LORA_SF;
+  lora.bandwidth = LORA_BW;
+  lora.coding_rate = LORA_CR;
+  lora.tx_power = LORA_TX_POWER;
+  lora.preamble_length = LORA_PREAMBLE_LEN;
 
   while (1) {
 
@@ -326,25 +348,20 @@ void IMU_ReadData(int32_t accelData[3], int32_t gyroData[3]) {
 }
 
 /**
- * @brief Отправляет данные по UART в раиомодуль.
+ * @brief Отправляет данные по SPI в раиомодуль.
  * 
+ * @note Отправляет по UART если включен UART_LOG_FULL.
  * @param dat Указатель на структуру с данными сенсоров.
  */
-void UART_SendData(SensorData* dat) {
+void LORA_SendData(SensorData* dat) {
 #ifdef UART_LOG_FULL
-  snprintf(strBuf, BUFFER_LEN, "%s;%lu;%lu;%ld;%ld;%ld;%ld;%ld;%ld;%ld;%ld;%d;%d;%d;%d\n",
-           TEAM_NAME, dat->time, dat->press, dat->temp, dat->altitude,
-           dat->accelData[0], dat->accelData[1], dat->accelData[2],
-           dat->gyroData[0], dat->gyroData[1], dat->gyroData[2],
-           bitRead(dat->flags, 0), bitRead(dat->flags, 1),
-           bitRead(dat->flags, 2), bitRead(dat->flags, 3));
-#else
   snprintf(strBuf, BUFFER_LEN, "%s;%lu;%ld;%ld;%lu;%d;%d;%d;%d\n",
            TEAM_NAME, dat->time, dat->altitude, dat->temp, dat->vectAbs,
            bitRead(dat->flags, 0), bitRead(dat->flags, 1),
            bitRead(dat->flags, 2), bitRead(dat->flags, 3));
-#endif
   Serial.print(strBuf);  // Отправка строки через UART
+  E22_SendData(&lora, strBuf, strlen(strBuf) + 1);
+#endif
 }
 
 /**
